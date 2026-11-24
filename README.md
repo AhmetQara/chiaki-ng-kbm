@@ -120,7 +120,7 @@ If chiaki-ng KBM makes your games better, you can support its development:
   <a href="https://buymeacoffee.com/ahmetqara"><img alt="Buy me a coffee" src="docs/kbm/buymeacoffee.png" width="180"></a>
 </p>
 
-This fork is built on [chiaki-ng](https://github.com/chiaki-ng/chiaki-ng) by streetpea and its contributors. Please consider supporting them too: [buymeacoffee.com/streetpea](https://buymeacoffee.com/streetpea)
+This fork is built on [chiaki-ng](https://github.com/chiaki-ng/chiaki-ng) by streetpea and its contributors.
 
 ## License
 
