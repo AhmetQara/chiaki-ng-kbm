@@ -12,6 +12,11 @@
 </p>
 
 <p align="center">
+  <img src="docs/kbm/demo.gif" alt="GTA VI on PS5 played with keyboard and mouse through chiaki-ng KBM: driving with W and S, then aiming with the mouse and shooting a tanker until it explodes" width="900"><br>
+  <sub>GTA VI on a PS5, streamed to a PC and played with keyboard and mouse.</sub>
+</p>
+
+<p align="center">
   <img src="docs/kbm/launcher-en.png" alt="KBM Launcher: every action with its PS5 button and key, a DualSense diagram with the bound keys, mouse and stream settings" width="900">
 </p>
 
