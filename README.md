@@ -120,6 +120,10 @@ If chiaki-ng KBM makes your games better, you can support its development:
   <a href="https://buymeacoffee.com/ahmetqara"><img alt="Buy me a coffee" src="docs/kbm/buymeacoffee.png" width="180"></a>
 </p>
 
+Giving the repository a **star** also helps: it makes it easier for other players to find.
+
+Found a bug or want a layout for another game? [Open an issue](https://github.com/AhmetQara/chiaki-ng-kbm/issues/new/choose); a screenshot of the game's controller settings is all a new layout needs.
+
 This fork is built on [chiaki-ng](https://github.com/chiaki-ng/chiaki-ng) by streetpea and its contributors.
 
 ## License

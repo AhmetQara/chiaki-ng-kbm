@@ -1,0 +1,15 @@
+name: Feature request / new game layout
+description: Suggest a feature, or a default key layout for another game
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: idea
+    attributes:
+      label: What would you like?
+      description: For a game layout, a screenshot of the game's controller settings helps a lot.
+    validations:
+      required: true
+  - type: textarea
+    id: why
+    attributes:
+      label: Why would it help?

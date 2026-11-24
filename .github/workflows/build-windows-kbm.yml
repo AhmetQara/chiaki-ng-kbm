@@ -6,7 +6,10 @@ on:
   push:
     branches: [ kbm ]
     tags: [ 'kbm-v*' ]
+    # Text and picture changes don't need a 25-minute build
+    paths-ignore: [ '**.md', 'docs/**', '.github/ISSUE_TEMPLATE/**', '.github/CODEOWNERS', '.github/funding.yml' ]
   pull_request:
+    paths-ignore: [ '**.md', 'docs/**', '.github/ISSUE_TEMPLATE/**' ]
   workflow_dispatch:
 
 permissions:

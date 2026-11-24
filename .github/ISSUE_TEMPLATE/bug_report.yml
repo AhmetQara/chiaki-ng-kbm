@@ -1,0 +1,60 @@
+name: Bug report
+description: Something doesn't work as expected (keys, mouse, launcher, stream)
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report this. The more of the fields below you fill in, the faster it can be fixed.
+  - type: input
+    id: version
+    attributes:
+      label: chiaki-ng KBM version
+      description: The release you downloaded, for example kbm-v0.1.0
+      placeholder: kbm-v0.1.0
+    validations:
+      required: true
+  - type: input
+    id: game
+    attributes:
+      label: Game
+      description: Which PS5 game were you playing?
+      placeholder: GTA VI
+  - type: dropdown
+    id: area
+    attributes:
+      label: What is it about?
+      options:
+        - Mouse look (camera / aiming)
+        - Keyboard keys
+        - Vehicle mode
+        - KBM Launcher (settings window)
+        - Connecting / stream / picture
+        - Something else
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened, and what did you expect?
+      description: Which key or mouse button did you press, what did the game do, and what should it have done?
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Open KBM Launcher and press START
+        2. Connect to the PS5
+        3. ...
+  - type: textarea
+    id: setup
+    attributes:
+      label: Your setup
+      description: Windows version, GPU, wired or Wi-Fi, and whether you use Lossless Scaling or another frame generation tool.
+  - type: textarea
+    id: logs
+    attributes:
+      label: Log (optional)
+      description: chiaki-ng session logs are in %APPDATA%\Chiaki\Chiaki\log. Remove anything you don't want to share before attaching.
