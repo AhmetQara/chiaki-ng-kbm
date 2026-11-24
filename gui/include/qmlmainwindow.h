@@ -266,6 +266,11 @@ private:
     void snapshotPendingFrame();
     bool handleShortcut(QKeyEvent *event);
     bool event(QEvent *event) override;
+    bool nativeEvent(const QByteArray &eventType, void *message, qintptr *result) override;
+    void updateMouseLookCapture();
+    bool mouse_look_raw_registered = false;
+    bool mouse_look_captured = false;
+    QTimer *mouse_look_capture_timer = nullptr;
     QObject *focusObject() const override;
     void updateQueueDepthAverage(int depth);
     void updatePendingFrameAge(double age);

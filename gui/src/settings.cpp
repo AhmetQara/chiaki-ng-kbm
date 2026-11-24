@@ -2442,10 +2442,28 @@ QMap<int, Qt::Key> Settings::GetControllerMapping()
 	{
 		auto button_name = GetChiakiControllerButtonName(chiaki_button).replace(' ', '_').toLower();
 		if(settings.contains("keymap/" + button_name))
-			result[static_cast<int>(chiaki_button)] = QKeySequence(settings.value("keymap/" + button_name).toString())[0].key();
+			result[static_cast<int>(chiaki_button)] = KeyFromStoredName(settings.value("keymap/" + button_name).toString());
 	}
 
 	return result;
+}
+
+// QKeySequence can't parse a lone modifier ("Shift" alone means nothing to it),
+// so map those by name so Shift / Ctrl / Alt can be used as buttons (e.g. Shift = sprint).
+Qt::Key Settings::KeyFromStoredName(const QString &stored)
+{
+	QString key_name = stored.trimmed();
+	if(key_name.isEmpty())
+		return Qt::Key_unknown;
+	static const QMap<QString, Qt::Key> modifier_keys = {
+		{ QStringLiteral("shift"), Qt::Key_Shift },
+		{ QStringLiteral("ctrl"), Qt::Key_Control },
+		{ QStringLiteral("control"), Qt::Key_Control },
+		{ QStringLiteral("alt"), Qt::Key_Alt },
+	};
+	if(modifier_keys.contains(key_name.toLower()))
+		return modifier_keys.value(key_name.toLower());
+	return QKeySequence(key_name)[0].key();
 }
 
 void Settings::ClearKeyMapping()
@@ -2497,7 +2515,16 @@ QMap<Qt::Key, int> Settings::GetControllerMappingForDecoding()
 	QMap<Qt::Key, int> result;
 	for(auto it = map.begin(); it != map.end(); ++it)
 	{
-		result[it.value()] = it.key();
+		if(it.value() != Qt::Key_unknown)
+			result[it.value()] = it.key();
+	}
+	// Second key per button, e.g. Enter for ✕ next to Space (keymap/<button>_alt)
+	for(auto it = map.begin(); it != map.end(); ++it)
+	{
+		auto button_name = GetChiakiControllerButtonName(it.key()).replace(' ', '_').toLower();
+		Qt::Key alt = KeyFromStoredName(settings.value("keymap/" + button_name + "_alt").toString());
+		if(alt != Qt::Key_unknown && !result.contains(alt))
+			result[alt] = it.key();
 	}
 	return result;
 }

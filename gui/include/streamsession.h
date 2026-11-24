@@ -239,6 +239,34 @@ class StreamSession : public QObject
 		QPair<uint16_t, uint16_t> dpad_touch_value;
 		QTimer *dpad_touch_timer, *dpad_touch_stop_timer;
 		QElapsedTimer double_tap_timer;
+
+		// Mouse look: raw mouse movement -> right stick, buttons -> R2/L2/R3/L1/R1
+		ChiakiControllerState mouse_state;
+		bool mouse_look_active;
+		double mouse_look_sensitivity;
+		double mouse_look_deadzone;
+		double mouse_look_curve;
+		double mouse_look_smoothing;
+		bool mouse_look_invert_y;
+		int mouse_look_acc_x, mouse_look_acc_y;
+		double mouse_look_smooth_x, mouse_look_smooth_y;
+		QElapsedTimer mouse_look_clock;
+		QTimer *mouse_look_timer;
+		void MouseLookTick();
+
+		// Vehicle mode: while on, the keys for left stick up/down also press R2/L2 (gas/brake)
+		bool drive_mode;
+		int drive_toggle_key;
+		bool drive_auto;          // △ (enter / exit vehicle) also flips vehicle mode
+		bool drive_beep;          // play a sound when vehicle mode changes
+		bool drive_exit_on_interact; // △ in a vehicle is "exit vehicle": turn vehicle mode off
+		bool drive_exit_on_aim;      // right click while in vehicle mode = aiming on foot: turn it off
+		// What the mouse buttons press while in vehicle mode (bit for digital buttons, or 1 = L2, 2 = R2)
+		uint32_t drive_left_bit, drive_right_bit;
+		int drive_left_analog, drive_right_analog;
+		int focus_key;            // one key that presses L3 + R3 together
+		void SetDriveMode(bool on);
+		void SetMouseButton(uint32_t bit, int analog, bool down);
 		RumbleHapticsIntensity rumble_haptics_intensity;
 		bool start_mic_unmuted;
 		bool session_started;
@@ -371,6 +399,10 @@ class StreamSession : public QObject
 		void HandleMouseReleaseEvent(QMouseEvent *event);
 		void HandleMousePressEvent(QMouseEvent *event);
 		void HandleMouseMoveEvent(QMouseEvent *event, qreal width, qreal height);
+		bool MouseLookActive() const { return mouse_look_active; }
+		void SetMouseLookActive(bool active);
+		void HandleRawMouse(int dx, int dy, uint16_t button_flags);
+		void ResetMouseLook();
 #if CHIAKI_GUI_ENABLE_SPEEX
 		bool ProcessMicFrame(int16_t *echo_buf);
 #endif

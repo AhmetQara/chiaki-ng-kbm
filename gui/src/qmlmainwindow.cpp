@@ -4,6 +4,7 @@
 #include "chiaki/log.h"
 #include "chiaki/time.h"
 #include "streamsession.h"
+#include "mouselook_win.h"
 
 #include <qpa/qplatformnativeinterface.h>
 
@@ -7701,8 +7702,57 @@ bool QmlMainWindow::nvidiaCard() const
     return nvidia_card;
 }
 
+bool QmlMainWindow::nativeEvent(const QByteArray &eventType, void *message, qintptr *result)
+{
+#ifdef Q_OS_WIN
+    // Only parse here. Nothing in this function may touch winId(): native messages also
+    // arrive while Qt is still creating the window, and asking for the handle then makes
+    // Qt try to create it a second time (crash in qwindows.dll).
+    int dx = 0, dy = 0;
+    uint16_t button_flags = 0;
+    if (mouse_look_raw_registered && session && !grab_input && session->MouseLookActive()
+            && MouseLookParseRawInput(message, &dx, &dy, &button_flags))
+        session->HandleRawMouse(dx, dy, button_flags);
+#endif
+    return QWindow::nativeEvent(eventType, message, result);
+}
+
+void QmlMainWindow::updateMouseLookCapture()
+{
+    if (!handle())
+        return;
+    if (!mouse_look_raw_registered)
+        mouse_look_raw_registered = MouseLookRegisterRawInput(reinterpret_cast<void *>(winId()));
+    bool want = session && !grab_input && isActive() && session->MouseLookActive();
+    if (want) {
+        // Re-clip every tick: the window may have moved or gone fullscreen
+        MouseLookClipCursor(reinterpret_cast<void *>(winId()), true);
+        if (!mouse_look_captured)
+            setCursor(Qt::BlankCursor);
+        mouse_look_captured = true;
+        return;
+    }
+    if (!mouse_look_captured)
+        return;
+    mouse_look_captured = false;
+    MouseLookClipCursor(nullptr, false);
+    if (session)
+        session->ResetMouseLook();
+    if (grab_input || !has_video || !settings->GetHideCursor())
+        setCursor(Qt::ArrowCursor);
+}
+
 bool QmlMainWindow::event(QEvent *event)
 {
+    if (!mouse_look_capture_timer && handle()
+            && (event->type() == QEvent::Expose || event->type() == QEvent::WindowActivate)) {
+        // The window exists now: check a few times a second whether mouse look should
+        // lock and hide the cursor (and register for raw mouse input the first time)
+        mouse_look_capture_timer = new QTimer(this);
+        mouse_look_capture_timer->setInterval(100);
+        connect(mouse_look_capture_timer, &QTimer::timeout, this, &QmlMainWindow::updateMouseLookCapture);
+        mouse_look_capture_timer->start();
+    }
     switch (event->type()) {
     case QEvent::MouseMove:
     case QEvent::MouseButtonPress:

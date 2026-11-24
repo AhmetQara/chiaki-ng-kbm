@@ -735,6 +735,7 @@ class Settings : public QObject
 		void SetControllerButtonMapping(int, Qt::Key);
 		QMap<int, Qt::Key> GetControllerMapping();
 		QMap<Qt::Key, int> GetControllerMappingForDecoding();
+		static Qt::Key KeyFromStoredName(const QString &stored);
 
 	signals:
 		void RegisteredHostsUpdated();

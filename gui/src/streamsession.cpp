@@ -11,14 +11,62 @@
 #include <chiaki/time.h>
 #include "../../lib/src/utils.h"
 
+#include <mouselook_win.h>
+
 #include <QKeyEvent>
+#include <QKeySequence>
 #include <QMutexLocker>
+#include <QSettings>
 #include <QtMath>
 #include <atomic>
 
 #include <algorithm>
+#include <cmath>
 
 #include <cstring>
+
+// Key name as stored in the registry ("V", "CapsLock", "Shift"...) -> Qt key, 0 if none
+static int KeyFromName(QString name)
+{
+	name = name.trimmed();
+	if(name.isEmpty())
+		return 0;
+	if(name.compare(QStringLiteral("shift"), Qt::CaseInsensitive) == 0)
+		return Qt::Key_Shift;
+	if(name.compare(QStringLiteral("ctrl"), Qt::CaseInsensitive) == 0 || name.compare(QStringLiteral("control"), Qt::CaseInsensitive) == 0)
+		return Qt::Key_Control;
+	if(name.compare(QStringLiteral("alt"), Qt::CaseInsensitive) == 0)
+		return Qt::Key_Alt;
+	return QKeySequence(name)[0].key();
+}
+
+// PS button name ("r1", "l2", "cross"...) -> digital button bit, or analog 1 = L2, 2 = R2
+static void ButtonFromName(const QString &name, uint32_t *bit, int *analog)
+{
+	static const QMap<QString, uint32_t> bits = {
+		{ QStringLiteral("cross"), CHIAKI_CONTROLLER_BUTTON_CROSS },
+		{ QStringLiteral("moon"), CHIAKI_CONTROLLER_BUTTON_MOON },
+		{ QStringLiteral("box"), CHIAKI_CONTROLLER_BUTTON_BOX },
+		{ QStringLiteral("pyramid"), CHIAKI_CONTROLLER_BUTTON_PYRAMID },
+		{ QStringLiteral("l1"), CHIAKI_CONTROLLER_BUTTON_L1 },
+		{ QStringLiteral("r1"), CHIAKI_CONTROLLER_BUTTON_R1 },
+		{ QStringLiteral("l3"), CHIAKI_CONTROLLER_BUTTON_L3 },
+		{ QStringLiteral("r3"), CHIAKI_CONTROLLER_BUTTON_R3 },
+	};
+	QString n = name.trimmed().toLower();
+	*bit = 0;
+	*analog = 0;
+	if(n == QStringLiteral("l2"))
+		*analog = 1;
+	else if(n == QStringLiteral("r2"))
+		*analog = 2;
+	else
+		*bit = bits.value(n, 0);
+}
+
+#define MOUSE_LOOK_UPDATE_INTERVAL_MS 4
+// Mouse counts per millisecond that give a full stick deflection at sensitivity 1.0
+#define MOUSE_LOOK_FULL_SPEED 4.0
 
 #define SETSU_UPDATE_INTERVAL_MS 4
 #define STEAMDECK_UPDATE_INTERVAL_MS 4
@@ -514,6 +562,41 @@ StreamSession::StreamSession(const StreamSessionConnectInfo &connect_info, QObje
 
 	chiaki_controller_state_set_idle(&keyboard_state);
 	chiaki_controller_state_set_idle(&touch_state);
+	chiaki_controller_state_set_idle(&mouse_state);
+	{
+		// Mouse look settings live next to chiaki-ng's own settings in the registry
+		// (HKCU\Software\Chiaki\Chiaki\settings), with no UI of their own.
+		QSettings ml(QStringLiteral("Chiaki"), QStringLiteral("Chiaki"));
+		mouse_look_active = ml.value("settings/mouselook_enabled", true).toBool();
+		mouse_look_sensitivity = std::clamp(ml.value("settings/mouselook_sensitivity", 1.0).toDouble(), 0.05, 20.0);
+		mouse_look_deadzone = std::clamp(ml.value("settings/mouselook_deadzone", 0.20).toDouble(), 0.0, 0.9);
+		mouse_look_curve = std::clamp(ml.value("settings/mouselook_curve", 0.8).toDouble(), 0.2, 3.0);
+		mouse_look_smoothing = std::clamp(ml.value("settings/mouselook_smoothing", 0.4).toDouble(), 0.0, 0.95);
+		mouse_look_invert_y = ml.value("settings/mouselook_invert_y", false).toBool();
+		drive_toggle_key = KeyFromName(ml.value("keymap/drive_mode_toggle", QStringLiteral("V")).toString());
+		focus_key = KeyFromName(ml.value("keymap/focus_mode", QStringLiteral("CapsLock")).toString());
+		// Off by default: △ is used for much more than getting in and out of vehicles
+		drive_auto = ml.value("settings/vehicle_auto", false).toBool();
+		drive_beep = ml.value("settings/vehicle_beep", false).toBool();
+		drive_exit_on_interact = ml.value("settings/vehicle_exit_on_interact", true).toBool();
+		// Off: right click in a vehicle is how people try to aim after picking a weapon
+		drive_exit_on_aim = ml.value("settings/vehicle_exit_on_aim", false).toBool();
+		ButtonFromName(ml.value("settings/vehicle_mouse_left", QStringLiteral("r1")).toString(), &drive_left_bit, &drive_left_analog);
+		// "none" (or anything unknown) = the button does nothing in vehicle mode
+		ButtonFromName(ml.value("settings/vehicle_mouse_right", QStringLiteral("none")).toString(), &drive_right_bit, &drive_right_analog);
+	}
+	drive_mode = false;
+	mouse_look_acc_x = mouse_look_acc_y = 0;
+	mouse_look_smooth_x = mouse_look_smooth_y = 0.0;
+	mouse_look_timer = new QTimer(this);
+	mouse_look_timer->setTimerType(Qt::PreciseTimer);
+	mouse_look_timer->setInterval(MOUSE_LOOK_UPDATE_INTERVAL_MS);
+	connect(mouse_look_timer, &QTimer::timeout, this, &StreamSession::MouseLookTick);
+	if(mouse_look_active)
+	{
+		mouse_look_clock.start();
+		mouse_look_timer->start();
+	}
 	touch_tracker=QMap<int, uint8_t>();
 	mouse_touch_id=-1;
 	dpad_touch_id =-1;
@@ -898,8 +981,143 @@ void StreamSession::GoHome()
 	chiaki_session_go_home(&session);
 }
 
+void StreamSession::SetMouseLookActive(bool active)
+{
+	if(active == mouse_look_active)
+		return;
+	mouse_look_active = active;
+	ResetMouseLook();
+	if(active)
+	{
+		mouse_look_clock.restart();
+		mouse_look_timer->start();
+	}
+	else
+		mouse_look_timer->stop();
+	CHIAKI_LOGI(GetChiakiLog(), "Mouse look %s", active ? "on" : "off");
+}
+
+void StreamSession::ResetMouseLook()
+{
+	mouse_look_acc_x = mouse_look_acc_y = 0;
+	mouse_look_smooth_x = mouse_look_smooth_y = 0.0;
+	bool was_busy = mouse_state.buttons || mouse_state.l2_state || mouse_state.r2_state
+		|| mouse_state.right_x || mouse_state.right_y;
+	chiaki_controller_state_set_idle(&mouse_state);
+	if(was_busy)
+		SendFeedbackState();
+}
+
+void StreamSession::HandleRawMouse(int dx, int dy, uint16_t button_flags)
+{
+	if(!mouse_look_active)
+		return;
+	mouse_look_acc_x += dx;
+	mouse_look_acc_y += dy;
+	if(!button_flags)
+		return;
+
+	// On foot: left = R2 (shoot), right = L2 (aim).
+	// Vehicle mode: R2 / L2 are gas / brake, so the buttons go to the vehicle aim / shoot
+	// buttons instead (default right = L1, left = R1).
+	// Always: middle = R3, back side button = L1, forward side button = R1.
+	// Right click in vehicle mode most likely means you got out and are aiming on foot
+	if(drive_mode && drive_exit_on_aim && (button_flags & MOUSELOOK_RIGHT_DOWN))
+		SetDriveMode(false);
+
+	uint32_t left_bit = drive_mode ? drive_left_bit : 0;
+	int left_analog = drive_mode ? drive_left_analog : 2;
+	uint32_t right_bit = drive_mode ? drive_right_bit : 0;
+	int right_analog = drive_mode ? drive_right_analog : 1;
+	if(button_flags & MOUSELOOK_LEFT_DOWN)   SetMouseButton(left_bit, left_analog, true);
+	if(button_flags & MOUSELOOK_LEFT_UP)     SetMouseButton(left_bit, left_analog, false);
+	if(button_flags & MOUSELOOK_RIGHT_DOWN)  SetMouseButton(right_bit, right_analog, true);
+	if(button_flags & MOUSELOOK_RIGHT_UP)    SetMouseButton(right_bit, right_analog, false);
+	if(button_flags & MOUSELOOK_MIDDLE_DOWN) SetMouseButton(CHIAKI_CONTROLLER_BUTTON_R3, 0, true);
+	if(button_flags & MOUSELOOK_MIDDLE_UP)   SetMouseButton(CHIAKI_CONTROLLER_BUTTON_R3, 0, false);
+	if(button_flags & MOUSELOOK_X1_DOWN)     SetMouseButton(CHIAKI_CONTROLLER_BUTTON_L1, 0, true);
+	if(button_flags & MOUSELOOK_X1_UP)       SetMouseButton(CHIAKI_CONTROLLER_BUTTON_L1, 0, false);
+	if(button_flags & MOUSELOOK_X2_DOWN)     SetMouseButton(CHIAKI_CONTROLLER_BUTTON_R1, 0, true);
+	if(button_flags & MOUSELOOK_X2_UP)       SetMouseButton(CHIAKI_CONTROLLER_BUTTON_R1, 0, false);
+	SendFeedbackState();
+}
+
+void StreamSession::SetMouseButton(uint32_t bit, int analog, bool down)
+{
+	if(analog == 1)
+		mouse_state.l2_state = down ? 0xff : 0;
+	else if(analog == 2)
+		mouse_state.r2_state = down ? 0xff : 0;
+	else if(down)
+		mouse_state.buttons |= bit;
+	else
+		mouse_state.buttons &= ~bit;
+}
+
+void StreamSession::SetDriveMode(bool on)
+{
+	if(on == drive_mode)
+		return;
+	drive_mode = on;
+	// Let go of everything the mode changes the meaning of, so nothing stays held
+	keyboard_state.l2_state = 0;
+	keyboard_state.r2_state = 0;
+	mouse_state.buttons = 0;
+	mouse_state.l2_state = 0;
+	mouse_state.r2_state = 0;
+	if(drive_beep)
+		MouseLookBeep(on);
+	CHIAKI_LOGI(GetChiakiLog(), "Vehicle mode %s", on ? "on" : "off");
+	SendFeedbackState();
+}
+
+void StreamSession::MouseLookTick()
+{
+	double dt = (double)mouse_look_clock.restart();
+	dt = std::clamp(dt, 1.0, 50.0);
+
+	// Mouse speed in counts per millisecond, lightly smoothed so single packets don't jitter
+	double vx = mouse_look_acc_x / dt;
+	double vy = mouse_look_acc_y / dt;
+	mouse_look_acc_x = mouse_look_acc_y = 0;
+	mouse_look_smooth_x = mouse_look_smooth_x * mouse_look_smoothing + vx * (1.0 - mouse_look_smoothing);
+	mouse_look_smooth_y = mouse_look_smooth_y * mouse_look_smoothing + vy * (1.0 - mouse_look_smoothing);
+
+	int16_t out_x = 0, out_y = 0;
+	double speed = std::hypot(mouse_look_smooth_x, mouse_look_smooth_y);
+	if(speed > 0.001)
+	{
+		double magnitude = speed * mouse_look_sensitivity / MOUSE_LOOK_FULL_SPEED;
+		if(magnitude >= 0.01)
+		{
+			// Start just past the game's stick deadzone so small movements still turn the camera
+			double out = mouse_look_deadzone + (1.0 - mouse_look_deadzone) * std::min(1.0, std::pow(magnitude, mouse_look_curve));
+			out = std::min(out, 1.0);
+			double x = mouse_look_smooth_x / speed * out;
+			double y = mouse_look_smooth_y / speed * out;
+			if(mouse_look_invert_y)
+				y = -y;
+			out_x = (int16_t)std::clamp(x * 32767.0, -32767.0, 32767.0);
+			out_y = (int16_t)std::clamp(y * 32767.0, -32767.0, 32767.0);
+		}
+		else
+		{
+			mouse_look_smooth_x = mouse_look_smooth_y = 0.0;
+		}
+	}
+
+	if(out_x != mouse_state.right_x || out_y != mouse_state.right_y)
+	{
+		mouse_state.right_x = out_x;
+		mouse_state.right_y = out_y;
+		SendFeedbackState();
+	}
+}
+
 void StreamSession::HandleMousePressEvent(QMouseEvent *event)
 {
+	if(mouse_look_active)
+		return;
 	if(!mouse_touch_enabled)
 		return;
 	// left button for touchpad gestures, others => touchpad click
@@ -910,6 +1128,8 @@ void StreamSession::HandleMousePressEvent(QMouseEvent *event)
 
 void StreamSession::HandleMouseReleaseEvent(QMouseEvent *event)
 {
+	if(mouse_look_active)
+		return;
 	if(!mouse_touch_enabled)
 		return;
 	// left button => end of touchpad gesture
@@ -927,6 +1147,8 @@ void StreamSession::HandleMouseReleaseEvent(QMouseEvent *event)
 
 void StreamSession::HandleMouseMoveEvent(QMouseEvent *event, qreal width, qreal height)
 {
+	if(mouse_look_active)
+		return;
 	if(!mouse_touch_enabled)
 		return;
 	// left button with move => touchpad gesture, otherwise ignore
@@ -947,8 +1169,34 @@ void StreamSession::HandleMouseMoveEvent(QMouseEvent *event, qreal width, qreal 
 
 void StreamSession::HandleKeyboardEvent(QKeyEvent *event)
 {
+	// F8 turns mouse look on and off (off = the mouse is a normal cursor / touchpad again)
+	if(event->key() == Qt::Key_F8)
+	{
+		if(event->type() == QEvent::Type::KeyPress && !event->isAutoRepeat())
+			SetMouseLookActive(!mouse_look_active);
+		return;
+	}
 	if(!keyboard_controller_enabled)
 		return;
+	if(drive_toggle_key && event->key() == drive_toggle_key)
+	{
+		if(event->type() == QEvent::Type::KeyPress && !event->isAutoRepeat())
+			SetDriveMode(!drive_mode);
+		return;
+	}
+	if(focus_key && event->key() == focus_key)
+	{
+		// One key for L3 + R3 together (focus mode)
+		if(!event->isAutoRepeat())
+		{
+			if(event->type() == QEvent::Type::KeyPress)
+				keyboard_state.buttons |= CHIAKI_CONTROLLER_BUTTON_L3 | CHIAKI_CONTROLLER_BUTTON_R3;
+			else
+				keyboard_state.buttons &= ~(CHIAKI_CONTROLLER_BUTTON_L3 | CHIAKI_CONTROLLER_BUTTON_R3);
+			SendFeedbackState();
+		}
+		return;
+	}
 	if(key_map.contains(Qt::Key(event->key())) == false)
 		return;
 
@@ -957,6 +1205,22 @@ void StreamSession::HandleKeyboardEvent(QKeyEvent *event)
 
 	int button = key_map[Qt::Key(event->key())];
 	bool press_event = event->type() == QEvent::Type::KeyPress;
+
+	// △ gets in and out of vehicles, so it also flips vehicle mode (off by default: △ does a lot on foot)
+	if(drive_auto && press_event && button == CHIAKI_CONTROLLER_BUTTON_PYRAMID)
+		SetDriveMode(!drive_mode);
+	// In a vehicle △ is only "exit vehicle", so it turns vehicle mode off (never on)
+	else if(drive_mode && drive_exit_on_interact && press_event && button == CHIAKI_CONTROLLER_BUTTON_PYRAMID)
+		SetDriveMode(false);
+
+	if(drive_mode)
+	{
+		// In vehicle mode forward / back are also gas (R2) / brake-reverse (L2)
+		if(button == static_cast<int>(ControllerButtonExt::ANALOG_STICK_LEFT_Y_UP))
+			keyboard_state.r2_state = press_event ? 0xff : 0;
+		else if(button == static_cast<int>(ControllerButtonExt::ANALOG_STICK_LEFT_Y_DOWN))
+			keyboard_state.l2_state = press_event ? 0xff : 0;
+	}
 
 	switch(button)
 	{
@@ -1285,6 +1549,7 @@ void StreamSession::DpadSendFeedbackState()
 #endif
 	chiaki_controller_state_or(&state, &state, &keyboard_state);
 	chiaki_controller_state_or(&state, &state, &touch_state);
+	chiaki_controller_state_or(&state, &state, &mouse_state);
 
 	if(input_block)
 	{
@@ -1295,6 +1560,7 @@ void StreamSession::DpadSendFeedbackState()
 		{
 			chiaki_controller_state_set_idle(&state);
 			chiaki_controller_state_set_idle(&keyboard_state);
+			chiaki_controller_state_set_idle(&mouse_state);
 		}
 	}
 	if((dpad_touch_shortcut1 || dpad_touch_shortcut2 || dpad_touch_shortcut3 || dpad_touch_shortcut4) && (!dpad_touch_shortcut1 || (state.buttons & dpad_touch_shortcut1)) && (!dpad_touch_shortcut2 || (state.buttons & dpad_touch_shortcut2)) && (!dpad_touch_shortcut3 || (state.buttons & dpad_touch_shortcut3)) && (!dpad_touch_shortcut4 || (state.buttons & dpad_touch_shortcut4)))
@@ -1341,6 +1607,7 @@ void StreamSession::SendFeedbackState()
 #endif
 	chiaki_controller_state_or(&state, &state, &keyboard_state);
 	chiaki_controller_state_or(&state, &state, &touch_state);
+	chiaki_controller_state_or(&state, &state, &mouse_state);
 
 	if(input_block)
 	{
@@ -1351,6 +1618,7 @@ void StreamSession::SendFeedbackState()
 		{
 			chiaki_controller_state_set_idle(&state);
 			chiaki_controller_state_set_idle(&keyboard_state);
+			chiaki_controller_state_set_idle(&mouse_state);
 		}
 	}
 	if((dpad_touch_shortcut1 || dpad_touch_shortcut2 || dpad_touch_shortcut3 || dpad_touch_shortcut4) && (!dpad_touch_shortcut1 || (state.buttons & dpad_touch_shortcut1)) && (!dpad_touch_shortcut2 || (state.buttons & dpad_touch_shortcut2)) && (!dpad_touch_shortcut3 || (state.buttons & dpad_touch_shortcut3)) && (!dpad_touch_shortcut4 || (state.buttons & dpad_touch_shortcut4)))

@@ -39,3 +39,11 @@ chiaki.conf
 .cache/
 *.vscode
 site/
+
+# chiaki-ng KBM local build output
+/build/
+/dist/
+/deps/
+/libplacebo/
+/hidapi/
+/SDL3-*
