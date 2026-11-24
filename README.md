@@ -115,9 +115,9 @@ The output goes to `dist/chiaki-ng-kbm`.
 If chiaki-ng KBM makes your games better, you can support its development:
 
 <p>
-  <a href="https://github.com/sponsors/AhmetQara"><img alt="Sponsor on GitHub" src="https://img.shields.io/badge/Sponsor%20on%20GitHub-ea4aaa?style=for-the-badge&logo=githubsponsors&logoColor=white" height="40"></a>
-  &nbsp;
-  <a href="https://buymeacoffee.com/ahmetqara"><img alt="Buy Me a Coffee" src="https://img.shields.io/badge/Buy%20me%20a%20coffee-FFDD00?style=for-the-badge&logo=buymeacoffee&logoColor=black" height="40"></a>
+  <a href="https://github.com/sponsors/AhmetQara"><img alt="Sponsor me on GitHub" src="docs/kbm/github-sponsors.png" width="180"></a>
+  &nbsp;&nbsp;
+  <a href="https://buymeacoffee.com/ahmetqara"><img alt="Buy me a coffee" src="docs/kbm/buymeacoffee.png" width="180"></a>
 </p>
 
 This fork is built on [chiaki-ng](https://github.com/chiaki-ng/chiaki-ng) by streetpea and its contributors. Please consider supporting them too: [buymeacoffee.com/streetpea](https://buymeacoffee.com/streetpea)
