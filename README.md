@@ -115,7 +115,7 @@ The output goes to `dist/chiaki-ng-kbm`.
 If chiaki-ng KBM makes your games better, you can support its development:
 
 <p>
-  <a href="https://github.com/sponsors/AhmetQara"><img alt="Sponsor me on GitHub" src="docs/kbm/github-sponsors.png" width="180"></a>
+  <a href="https://github.com/sponsors/AhmetQara"><img alt="Sponsor me on GitHub" src="docs/kbm/sponsor-button.png" width="180"></a>
   &nbsp;&nbsp;
   <a href="https://buymeacoffee.com/ahmetqara"><img alt="Buy me a coffee" src="docs/kbm/buymeacoffee.png" width="180"></a>
 </p>
