@@ -267,6 +267,20 @@ class StreamSession : public QObject
 		int focus_key;            // one key that presses L3 + R3 together
 		void SetDriveMode(bool on);
 		void SetMouseButton(uint32_t bit, int analog, bool down);
+
+		// Vehicle detection: the PS5 sends adaptive-trigger effects for the DualSense, and games
+		// like GTA VI use distinct ones while you sit in a vehicle. Seeing them turns vehicle mode on,
+		// and their disappearing after △ (exit vehicle) turns it off, so V is only a fallback.
+		bool veh_detect;
+		bool veh_signal;              // the current trigger effects look like a vehicle seat
+		bool veh_suppress;            // V turned vehicle mode off while the signal was on: wait for it to go
+		bool veh_exit_pending;        // △ was pressed in a vehicle: turn off once the signal goes away
+		uint64_t veh_last_fx;         // last logged effects, so the log only shows changes
+		QElapsedTimer veh_signal_clock;   // time since veh_signal last changed
+		QElapsedTimer veh_interact_clock; // time since △ was last pressed
+		QTimer *veh_timer;
+		void VehicleTriggerEffects(uint8_t type_left, const uint8_t *left, uint8_t type_right, const uint8_t *right);
+		void VehicleDetectTick();
 		RumbleHapticsIntensity rumble_haptics_intensity;
 		bool start_mic_unmuted;
 		bool session_started;

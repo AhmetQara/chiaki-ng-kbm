@@ -176,7 +176,7 @@ namespace ChiakiMouseLauncher
 		const string LauncherVersion = "6";
 		static readonly string[] PsButtonNames = { "none", "l1", "r1", "l2", "r2", "l3", "r3", "cross", "moon", "pyramid", "box" };
 		static readonly string[] PsButtonLabels = { "—", "L1", "R1", "L2", "R2", "L3", "R3", "✕", "○", "△", "▢" };
-		CheckBox vehAuto, vehBeep, vehExitE, vehExitAim;
+		CheckBox vehAuto, vehBeep, vehExitE, vehExitAim, vehDetect;
 		ComboBox vehLeft, vehRight;
 		readonly List<Binding> bindings = new List<Binding>();
 		readonly List<ActionRow> rows = new List<ActionRow>();
@@ -490,6 +490,9 @@ namespace ChiakiMouseLauncher
 			// it stays off and isn't offered in the UI.
 			vehAuto = new CheckBox();
 			vehBeep = new CheckBox();
+			// Reads the adaptive-trigger effects the PS5 sends; harmless in games that don't use them
+			vehDetect = Check(Strings.T("veh_detect"));
+			opts.Controls.Add(vehDetect);
 			// Turning vehicle mode OFF automatically is safe: △ in a vehicle only exits it,
 			// and right click in a vehicle does nothing, so on foot it means aiming.
 			vehExitE = Check(Strings.T("veh_exit_e"));
@@ -745,6 +748,7 @@ namespace ChiakiMouseLauncher
 				mouseOnAtStart.Checked = ToBool(Get(s, "mouselook_enabled"), true);
 				vehAuto.Checked = false;
 				vehExitE.Checked = ToBool(Get(s, "vehicle_exit_on_interact"), true);
+				vehDetect.Checked = ToBool(Get(s, "vehicle_detect"), true);
 				vehExitAim.Checked = false;
 				vehBeep.Checked = false;
 				SelectButton(vehLeft, Convert.ToString(Get(s, "vehicle_mouse_left")), "r1");
@@ -778,7 +782,7 @@ namespace ChiakiMouseLauncher
 			sensitivity.Value = 20; deadzone.Value = 20; invertY.Checked = false; mouseOnAtStart.Checked = true;
 			SetFps(60); bitrate.Value = 10;
 			vehAuto.Checked = false; vehBeep.Checked = false;
-			vehExitE.Checked = true; vehExitAim.Checked = false;
+			vehExitE.Checked = true; vehExitAim.Checked = false; vehDetect.Checked = true;
 			SelectButton(vehLeft, "r1", "r1");
 			// GTA VI vehicles: R1 shoots, L1 is holster / weapon select; there is no separate aim
 			SelectButton(vehRight, "none", "none");
@@ -806,6 +810,7 @@ namespace ChiakiMouseLauncher
 					s.SetValue("vehicle_auto", vehAuto.Checked ? "true" : "false", RegistryValueKind.String);
 					s.SetValue("vehicle_exit_on_interact", vehExitE.Checked ? "true" : "false", RegistryValueKind.String);
 					s.SetValue("vehicle_exit_on_aim", vehExitAim.Checked ? "true" : "false", RegistryValueKind.String);
+					s.SetValue("vehicle_detect", vehDetect.Checked ? "true" : "false", RegistryValueKind.String);
 					s.SetValue("vehicle_beep", vehBeep.Checked ? "true" : "false", RegistryValueKind.String);
 					s.SetValue("vehicle_mouse_left", PsButtonNames[Math.Max(0, vehLeft.SelectedIndex)], RegistryValueKind.String);
 					s.SetValue("vehicle_mouse_right", PsButtonNames[Math.Max(0, vehRight.SelectedIndex)], RegistryValueKind.String);

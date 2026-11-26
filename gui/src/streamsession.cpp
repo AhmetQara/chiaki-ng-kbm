@@ -21,6 +21,7 @@
 #include <atomic>
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 
 #include <cstring>
@@ -586,6 +587,19 @@ StreamSession::StreamSession(const StreamSessionConnectInfo &connect_info, QObje
 		ButtonFromName(ml.value("settings/vehicle_mouse_right", QStringLiteral("none")).toString(), &drive_right_bit, &drive_right_analog);
 	}
 	drive_mode = false;
+	{
+		QSettings ml(QStringLiteral("Chiaki"), QStringLiteral("Chiaki"));
+		veh_detect = ml.value("settings/vehicle_detect", true).toBool();
+	}
+	veh_signal = veh_suppress = veh_exit_pending = false;
+	veh_last_fx = ~0ull;
+	veh_signal_clock.start();
+	veh_interact_clock.invalidate();
+	veh_timer = new QTimer(this);
+	veh_timer->setInterval(50);
+	connect(veh_timer, &QTimer::timeout, this, &StreamSession::VehicleDetectTick);
+	if(veh_detect)
+		veh_timer->start();
 	mouse_look_acc_x = mouse_look_acc_y = 0;
 	mouse_look_smooth_x = mouse_look_smooth_y = 0.0;
 	mouse_look_timer = new QTimer(this);
@@ -1071,6 +1085,73 @@ void StreamSession::SetDriveMode(bool on)
 	SendFeedbackState();
 }
 
+// Trigger-effect signatures of sitting in a vehicle in GTA VI, from the GTA VI profile of
+// Stickmouse Mapper (github.com/tprjd/stickmouse-mapper, AGPL-3.0): mode byte, then the first
+// parameter bytes. On foot the game uses other effects (or none).
+static bool TriggerIs(uint8_t type, const uint8_t *p, uint8_t mode, uint8_t b0)
+{
+	return type == mode && p[0] == b0;
+}
+
+static bool TriggerIs(uint8_t type, const uint8_t *p, uint8_t mode, uint8_t b0, uint8_t b1)
+{
+	return type == mode && p[0] == b0 && p[1] == b1;
+}
+
+void StreamSession::VehicleTriggerEffects(uint8_t type_left, const uint8_t *left, uint8_t type_right, const uint8_t *right)
+{
+	bool seat = TriggerIs(type_right, right, 0x05, 0x80)
+		|| TriggerIs(type_left, left, 0x05, 0x80)
+		|| TriggerIs(type_left, left, 0x05, 0xc0)
+		|| (type_left == 0x05 && TriggerIs(type_right, right, 0x21, 0xff, 0x03));
+	bool entry = TriggerIs(type_left, left, 0x21, 0xff, 0x03) && TriggerIs(type_right, right, 0x21, 0xff, 0x03);
+	bool signal = seat || entry;
+	uint64_t fx = ((uint64_t)type_left << 40) | ((uint64_t)left[0] << 32) | ((uint64_t)left[1] << 24)
+		| ((uint64_t)type_right << 16) | ((uint64_t)right[0] << 8) | right[1];
+	if(fx != veh_last_fx)
+	{
+		veh_last_fx = fx;
+		// Kept in the log so other games' vehicle effects can be found later
+		CHIAKI_LOGI(GetChiakiLog(), "Trigger effects L=%02x:%02x%02x R=%02x:%02x%02x%s",
+			type_left, left[0], left[1], type_right, right[0], right[1], signal ? " (vehicle)" : "");
+	}
+	if(signal == veh_signal)
+		return;
+	veh_signal = signal;
+	veh_signal_clock.start();
+	if(!signal)
+		veh_suppress = false;
+}
+
+void StreamSession::VehicleDetectTick()
+{
+	if(!keyboard_controller_enabled)
+		return;
+	qint64 held = veh_signal_clock.elapsed();
+	bool recent_interact = veh_interact_clock.isValid() && veh_interact_clock.elapsed() < 15000;
+	if(!drive_mode)
+	{
+		// Shortly after △ (get in) the effects show up within a second; otherwise wait a bit longer
+		// so a passing effect doesn't flip the keys
+		if(veh_signal && !veh_suppress && held >= (recent_interact ? 50 : 700))
+		{
+			CHIAKI_LOGI(GetChiakiLog(), "Vehicle detected from trigger effects");
+			SetDriveMode(true);
+		}
+		return;
+	}
+	if(!veh_exit_pending)
+		return;
+	if(!veh_signal && held >= 300)
+	{
+		veh_exit_pending = false;
+		CHIAKI_LOGI(GetChiakiLog(), "Left the vehicle (trigger effects stopped)");
+		SetDriveMode(false);
+	}
+	else if(!veh_interact_clock.isValid() || veh_interact_clock.elapsed() > 6000)
+		veh_exit_pending = false; // still seated: △ didn't get us out
+}
+
 void StreamSession::MouseLookTick()
 {
 	double dt = (double)mouse_look_clock.restart();
@@ -1181,7 +1262,13 @@ void StreamSession::HandleKeyboardEvent(QKeyEvent *event)
 	if(drive_toggle_key && event->key() == drive_toggle_key)
 	{
 		if(event->type() == QEvent::Type::KeyPress && !event->isAutoRepeat())
+		{
+			// A manual choice wins over detection: turning it off while the vehicle signal is
+			// still on must not be undone a moment later
+			veh_exit_pending = false;
+			veh_suppress = drive_mode && veh_signal;
 			SetDriveMode(!drive_mode);
+		}
 		return;
 	}
 	if(focus_key && event->key() == focus_key)
@@ -1206,9 +1293,14 @@ void StreamSession::HandleKeyboardEvent(QKeyEvent *event)
 	int button = key_map[Qt::Key(event->key())];
 	bool press_event = event->type() == QEvent::Type::KeyPress;
 
+	if(press_event && button == CHIAKI_CONTROLLER_BUTTON_PYRAMID)
+		veh_interact_clock.start();
 	// △ gets in and out of vehicles, so it also flips vehicle mode (off by default: △ does a lot on foot)
 	if(drive_auto && press_event && button == CHIAKI_CONTROLLER_BUTTON_PYRAMID)
 		SetDriveMode(!drive_mode);
+	// The game shows we're in a vehicle: wait for that to stop instead of guessing the exit worked
+	else if(drive_mode && veh_detect && veh_signal && press_event && button == CHIAKI_CONTROLLER_BUTTON_PYRAMID)
+		veh_exit_pending = true;
 	// In a vehicle △ is only "exit vehicle", so it turns vehicle mode off (never on)
 	else if(drive_mode && drive_exit_on_interact && press_event && button == CHIAKI_CONTROLLER_BUTTON_PYRAMID)
 		SetDriveMode(false);
@@ -2815,6 +2907,16 @@ void StreamSession::Event(ChiakiEvent *event)
 			break;
 		}
 		case CHIAKI_EVENT_TRIGGER_EFFECTS: {
+			if(veh_detect)
+			{
+				uint8_t vtl = event->trigger_effects.type_left, vtr = event->trigger_effects.type_right;
+				std::array<uint8_t, 10> vl, vr;
+				memcpy(vl.data(), event->trigger_effects.left, 10);
+				memcpy(vr.data(), event->trigger_effects.right, 10);
+				QMetaObject::invokeMethod(this, [this, vtl, vl, vtr, vr]() {
+					VehicleTriggerEffects(vtl, vl.data(), vtr, vr.data());
+				});
+			}
 			if(ps5_trigger_intensity < 0)
 				return;
 			uint8_t type_left = event->trigger_effects.type_left;
