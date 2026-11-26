@@ -80,7 +80,7 @@ The defaults follow the default control scheme of GTA VI, with the usual PC keys
 | Phone / D-pad | **Arrow keys** | D-pad |
 | Confirm / back in menus | **Enter** / **X** | ✕ / ○ |
 
-| In a vehicle (press **V** when you get in) | Key | PS5 |
+| In a vehicle (switches on by itself in GTA VI, or press **V**) | Key | PS5 |
 |---|---|---|
 | Accelerate / brake-reverse | **W** / **S** | R2 / L2 |
 | Steer | **A** / **D** | Left stick |
@@ -90,7 +90,7 @@ The defaults follow the default control scheme of GTA VI, with the usual PC keys
 | Headlights | **C** | ○ |
 | Exit vehicle (also turns vehicle mode off) | **E** | △ |
 
-chiaki-ng can't see whether you're in a vehicle, so vehicle mode is turned on by hand (**V**). It turns itself off when you press **E** to get out.
+**Vehicle detection:** in GTA VI, vehicle mode switches itself on when you get in and off when you get out. It reads the adaptive-trigger effects the PS5 sends to the DualSense, which change while you sit in a vehicle. For this, *Trigger Effect Intensity* on the PS5 (Settings → Accessories → Controllers) must not be *Off*. In other games, or if it misses one, press **V**. The vehicle signatures started from the GTA VI profile of [Stickmouse Mapper](https://github.com/tprjd/stickmouse-mapper).
 
 ## Tips
 
