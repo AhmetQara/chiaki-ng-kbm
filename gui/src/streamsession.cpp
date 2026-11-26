@@ -1104,11 +1104,11 @@ void StreamSession::VehicleTriggerEffects(uint8_t type_left, const uint8_t *left
 		|| TriggerIs(type_left, left, 0x05, 0x80)
 		|| TriggerIs(type_left, left, 0x05, 0xc0)
 		|| (type_left == 0x05 && TriggerIs(type_right, right, 0x21, 0xff, 0x03))
-		// Seen while driving in our own GTA VI logs (2026-11-26): brake/gas resistance.
-		// On foot the game used 05:00 (none) and, when aiming, L=21:ff03 with R=25:44.
+		// Seen only while driving in our own GTA VI logs (2026-11-26): brake resistance on L2.
+		// R=21:80 alone is NOT a vehicle sign: it also flickers on foot. On foot the game
+		// otherwise used 05:00 (none) and, when aiming, L=21:ff03 with R=25:44.
 		|| TriggerIs(type_left, left, 0x21, 0x80, 0x03)
-		|| TriggerIs(type_left, left, 0x21, 0xc0, 0x03)
-		|| TriggerIs(type_right, right, 0x21, 0x80, 0x00);
+		|| TriggerIs(type_left, left, 0x21, 0xc0, 0x03);
 	bool entry = TriggerIs(type_left, left, 0x21, 0xff, 0x03) && TriggerIs(type_right, right, 0x21, 0xff, 0x03);
 	bool signal = seat || entry;
 	uint64_t fx = ((uint64_t)type_left << 40) | ((uint64_t)left[0] << 32) | ((uint64_t)left[1] << 24)
